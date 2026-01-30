@@ -1,0 +1,9 @@
+prompt,expected_agent,predicted_agent,sentiment
+The iPhone battery drains too fast.,iphone_sentiment,iphone_sentiment,NEGATIVE
+The new iPhone design is stunning!,iphone_sentiment,iphone_sentiment,POSITIVE
+Twitter keeps crashing on my phone.,twitter_sentiment,twitter_sentiment,NEGATIVE
+I had an amazing time using Twitter Spaces.,twitter_sentiment,twitter_sentiment,POSITIVE
+Why are people unhappy with the new iPhone?,iphone_sentiment,iphone_sentiment,NEGATIVE
+Twitter is full of trolls lately.,twitter_sentiment,twitter_sentiment,NEGATIVE
+Are iPhone users complaining on Twitter?,twitter_sentiment,twitter_sentiment,NEGATIVE
+I saw a tweet saying iPhones overheat easily.,iphone_sentiment,iphone_sentiment,NEGATIVE
