@@ -6,16 +6,16 @@ from a2a.message import Message
 from a2a.routing import ZeroShotRouter
 from a2a.schema import ToolDefinition
 
-from a2a_iphone_sentiment_agent import IPhoneAgent as IPhoneAgent
-from a2a_twitter_sentiment_agent import TwitterAgent as TwitterAgentAgent
+from a2a_iphone_sentiment_agent import IphoneSentiment as IphoneSentiment
+from a2a_twitter_sentiment_agent import TwitterSentiment as TwitterSentimentAgent
 
 class CoordinatorAgent(Agent):
     def __init__(self):
         super().__init__("coordinator_agent")
         self.router = ZeroShotRouter()
         self.agents = {
-            "iphone_sentiment": IPhoneAgent(),
-            "twitter_sentiment": TwitterAgentAgent()
+            "iphone_sentiment": IphoneSentiment(),
+            "twitter_sentiment": TwitterSentimentAgent()
         }
         self.tools = {
             "iphone_sentiment": "iPhone-related issues or praise",

@@ -3,6 +3,15 @@ from a2a.schema import ToolDefinition
 from transformers import pipeline
 from sentence_transformers import SentenceTransformer, util
 import pandas as pd
+import os
+import asyncio
+import os
+import pandas as pd
+from transformers import pipeline
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+from sklearn.preprocessing import label_binarize
+
 test_samples = [
     {"prompt": "The iPhone battery drains too fast.", "true_sentiment": "NEGATIVE"},
     {"prompt": "The new iPhone design is stunning!", "true_sentiment": "POSITIVE"},
@@ -17,9 +26,6 @@ test_samples = [
 ]
 
 # ------------------- Metrics Calculation ------------------- #
-import asyncio
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
-from sklearn.preprocessing import label_binarize
 
 async def evaluate_metrics(test_samples, agent):
     y_true = []
@@ -58,25 +64,56 @@ async def evaluate_metrics(test_samples, agent):
     else:
         y_true_bin = label_binarize(y_true, classes=class_labels)
         print("ROC-AUC Score:", roc_auc_score(y_true_bin, y_scores, average="macro", multi_class="ovr"))
-class IPhoneAgent(Agent):
+
+
+class IphoneSentiment(Agent):
     def __init__(self):
         super().__init__("iphone_sentiment")
-        self.sentiment_model = pipeline(
-            "sentiment-analysis",
-            model="cardiffnlp/twitter-roberta-base-sentiment"
-        )
-        self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
+        
+        # Updated specific paths for the iPhone model
+        sentiment_path = "./models/distilbert_sentiment"
+        embedder_path = "./models/minilm_embedder_iphone"
+        
+        os.makedirs("./models", exist_ok=True)
 
+        # 1. Sentiment Model Logic
+        if os.path.exists(sentiment_path):
+            print(f"[{self.name}] Loading local iPhone sentiment model...")
+            self.sentiment_model = pipeline(
+                "sentiment-analysis", 
+                model=sentiment_path, 
+                tokenizer=sentiment_path
+            )
+        else:
+            print(f"[{self.name}] Downloading iPhone sentiment model...")
+            self.sentiment_model = pipeline(
+                "sentiment-analysis", 
+                model="distilbert-base-uncased-finetuned-sst-2-english"
+            )
+            self.sentiment_model.model.save_pretrained(sentiment_path)
+            self.sentiment_model.tokenizer.save_pretrained(sentiment_path)
+
+        # 2. Embedder Logic (Using the new _iphone path)
+        if os.path.exists(embedder_path):
+            print(f"[{self.name}] Loading local iPhone embedder...")
+            self.embedder = SentenceTransformer(embedder_path)
+        else:
+            print(f"[{self.name}] Downloading iPhone embedder...")
+            self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
+            self.embedder.save(embedder_path)
+            print(f"[{self.name}] Embedder saved to {embedder_path}")
+
+        # 3. Data Loading
         try:
-            corpus = pd.read_csv("iphone.csv").iloc[:, -1].dropna().astype(str).tolist()
+            df = pd.read_csv("iphone.csv")
+            corpus = df.iloc[:, -1].dropna().astype(str).tolist()
             self.corpus = corpus
             self.embeddings = self.embedder.encode(corpus[:50], convert_to_tensor=True)
-            print(f"[{self.name}] Loaded {len(self.corpus)} iPhone entries", flush=True)
+            print(f"[{self.name}] Loaded {len(self.corpus)} entries", flush=True)
         except Exception as e:
             print(f"[{self.name}] Failed to load corpus: {e}", flush=True)
             self.corpus = []
             self.embeddings = None
-
     async def onInit(self):
         return [ToolDefinition(name="analyze_prompt", parameters={"text": {"type": "string"}})]
 
@@ -128,7 +165,7 @@ class IPhoneAgent(Agent):
 
 if __name__ == "__main__":
     import asyncio
-    from a2a_iphone_sentiment_agent import IPhoneAgent  # or from current module
+    from a2a_iphone_sentiment_agent import IphoneSentiment  # or from current module
 
     test_samples = [
         {"prompt": "The iPhone battery drains too fast.", "true_sentiment": "NEGATIVE"},
@@ -139,7 +176,7 @@ if __name__ == "__main__":
     ]
 
     async def main():
-        agent = IPhoneAgent()
+        agent = IphoneSentiment()
         await evaluate_metrics(test_samples, agent)
 
     asyncio.run(main())
