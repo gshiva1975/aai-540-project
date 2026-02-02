@@ -9,6 +9,40 @@ This section explains how to deploy and run the iPhone & Twitter Aspect-Based Se
 
 ---
 
+# Using the Project TAR in Amazon SageMaker
+
+This section explains how to deploy and run the iPhone & Twitter Aspect-Based Sentiment Analysis (ABSA) system using the provided project archive in an Amazon SageMaker environment.
+
+---
+
+## 0. Create an S3 Bucket (Required)
+
+Before running any pipelines, create an S3 bucket to store datasets, training outputs, and model artifacts.
+
+```python
+import boto3
+from botocore.exceptions import ClientError
+
+region = "us-east-1"
+bucket_name = "absa-iphone-twitter-<your-unique-suffix>"
+
+s3 = boto3.client("s3", region_name=region)
+
+try:
+    if region == "us-east-1":
+        s3.create_bucket(Bucket=bucket_name)
+    else:
+        s3.create_bucket(
+            Bucket=bucket_name,
+            CreateBucketConfiguration={"LocationConstraint": region}
+        )
+    print(f"S3 bucket created: {bucket_name}")
+except ClientError as e:
+    print(f"Bucket already exists or error occurred: {e}")
+
+
+---
+
 ## 1. Upload the Project Archive
 
 ### Option A: SageMaker Studio (Recommended)
