@@ -1,6 +1,5 @@
 
-
-m datasets import load_dataset
+from datasets import load_dataset
 from transformers import (
     AutoTokenizer,
     AutoModelForSequenceClassification,
@@ -8,12 +7,17 @@ from transformers import (
     Trainer
 )
 import torch
+import os
 
 MODEL_NAME = "distilbert-base-uncased-finetuned-sst-2-english"
 OUTPUT_DIR = "./model"
 
+
 def main():
-    # 1. Load dataset (example: SST-2 again, replace with your own later)
+    # Optional: ensure reproducibility
+    torch.manual_seed(42)
+
+    # 1. Load dataset (SST-2 from GLUE)
     dataset = load_dataset("glue", "sst2")
 
     # 2. Load tokenizer
@@ -43,37 +47,34 @@ def main():
 
     # 5. Training arguments
     training_args = TrainingArguments(
-        output_dir=OUTPUT_DIR,
-        evaluation_strategy="epoch",
-        save_strategy="epoch",
-        learning_rate=2e-5,
-        per_device_train_batch_size=16,
-        per_device_eval_batch_size=16,
-        num_train_epochs=2,
-        weight_decay=0.01,
-        logging_steps=100,
-        load_best_model_at_end=True,
-        metric_for_best_model="eval_loss",
-        report_to="none",  # no wandb
+    output_dir=OUTPUT_DIR,
+    learning_rate=2e-5,
+    per_device_train_batch_size=16,
+    per_device_eval_batch_size=16,
+    num_train_epochs=2,
+    weight_decay=0.01,
+    logging_steps=100,
     )
+
 
     # 6. Trainer
     trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=dataset["train"],
-        eval_dataset=dataset["validation"],
-        tokenizer=tokenizer,
+    model=model,
+    args=training_args,
+    train_dataset=dataset["train"],
+    eval_dataset=dataset["validation"],
     )
 
     # 7. Train
     trainer.train()
 
     # 8. Save final model
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     trainer.save_model(OUTPUT_DIR)
     tokenizer.save_pretrained(OUTPUT_DIR)
 
-    print(f"✅ Fine-tuned model saved to {OUTPUT_DIR}")
+    print(f" Fine-tuned model saved to {OUTPUT_DIR}")
+
 
 if __name__ == "__main__":
     main()
