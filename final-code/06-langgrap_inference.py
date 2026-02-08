@@ -2,6 +2,8 @@ import json, boto3
 from typing import TypedDict
 from langgraph.graph import StateGraph
 
+ROLE_ARN = "arn:aws:iam::288146132384:role/LabRole"
+
 runtime = boto3.client("sagemaker-runtime", region_name="us-east-1")
 
 def sentiment_tool(text: str):

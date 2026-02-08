@@ -6,6 +6,9 @@ MODEL_PREFIX = "sentiment"
 MODEL_PACKAGE_GROUP = "SentimentAnalysisModels"
 BUCKET = "my-sentiment-model-bucket-123456"
 
+ROLE_ARN = "arn:aws:iam::288146132384:role/LabRole"
+
+
 sm = boto3.client("sagemaker", region_name=REGION)
 s3 = boto3.client("s3", region_name=REGION)
 
