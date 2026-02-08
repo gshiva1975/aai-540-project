@@ -40,6 +40,9 @@ INFERENCE_IMAGE_URI = (
 s3 = boto3.client("s3", region_name=REGION)
 sm = boto3.client("sagemaker", region_name=REGION)
 
+METRICS_S3_URI = (
+    "s3://my-sentiment-model-bucket-123456/metrics/metrics_v3.json"
+)
 # =================================================
 # CREATE S3 BUCKET (IDEMPOTENT)
 # =================================================
@@ -99,9 +102,10 @@ except sm.exceptions.ResourceNotFound:
 # =================================================
 # REGISTER BASELINE MODEL
 # =================================================
+
 response = sm.create_model_package(
-    ModelPackageGroupName=MODEL_PACKAGE_GROUP,
-    ModelPackageDescription="BASELINE MODEL",
+    ModelPackageGroupName="SentimentAnalysisModels",
+    ModelPackageDescription="Baseline model with metrics",
     InferenceSpecification={
         "Containers": [
             {
@@ -112,11 +116,19 @@ response = sm.create_model_package(
         "SupportedContentTypes": ["application/json"],
         "SupportedResponseMIMETypes": ["application/json"]
     },
-    ModelApprovalStatus="Approved",
-    CustomerMetadataProperties={
-        "role": "baseline"
+    ModelApprovalStatus="PendingManualApproval",
+    ModelMetrics={
+        "ModelQuality": {
+            "Statistics": {
+                "ContentType": "application/json",
+                "S3Uri": METRICS_S3_URI
+            }
+        }
     }
 )
+
+print("📌 Model Package ARN:", response["ModelPackageArn"])
+
 
 print("✅ BASELINE MODEL REGISTERED")
 print(response["ModelPackageArn"])

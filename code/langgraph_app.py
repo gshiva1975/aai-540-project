@@ -27,4 +27,6 @@ graph.set_finish_point("sentiment")
 app = graph.compile()
 
 print(app.invoke({"text": "This product is amazing!"}))
+print(app.invoke({"text": "This product is not good!"}))
+print(app.invoke({"text": "This product is good!"}))
 
