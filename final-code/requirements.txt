@@ -17,3 +17,5 @@ python-dotenv>=1.0,<2.0
 rich>=13.7,<14.0
 typer>=0.9,<1.0
 
+langgraph
+
