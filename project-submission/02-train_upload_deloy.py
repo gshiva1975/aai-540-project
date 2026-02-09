@@ -7,6 +7,8 @@ PREFIX = "sentiment-models"
 GROUP = "SentimentAnalysisModels"
 
 HF_MODEL_ID = "distilbert-base-uncased"
+HF_MODEL_ID= "distilbert-base-uncased-finetuned-sst-2-english"
+
 IMAGE_URI = (
  "763104351884.dkr.ecr.us-east-1.amazonaws.com/"
  "huggingface-pytorch-inference:1.13.1-transformers4.26.0-cpu-py39-ubuntu20.04-v1.6"
