@@ -54,5 +54,5 @@ response = sm.create_model_package(
     }
 )
 
-print("📌 Registered:", response["ModelPackageArn"])
+print(" Registered:", response["ModelPackageArn"])
 

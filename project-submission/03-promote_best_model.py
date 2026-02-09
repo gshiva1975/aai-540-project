@@ -30,5 +30,5 @@ if not best:
     raise RuntimeError("No valid model metrics found")
 
 sm.update_model_package(ModelPackageArn=best, ModelApprovalStatus="Approved")
-print("🏆 Promoted:", best)
+print(" Promoted:", best)
 

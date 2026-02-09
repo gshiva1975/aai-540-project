@@ -31,11 +31,11 @@ s3 = boto3.client("s3", region_name=REGION)
 def ensure_bucket_exists(bucket_name: str):
     try:
         s3.head_bucket(Bucket=bucket_name)
-        print(f"✅ S3 bucket exists: {bucket_name}")
+        print(f" S3 bucket exists: {bucket_name}")
 
     except ClientError as e:
         if e.response["Error"]["Code"] in ["404", "NoSuchBucket"]:
-            print(f"🪣 Creating S3 bucket: {bucket_name}")
+            print(f" Creating S3 bucket: {bucket_name}")
 
             if REGION == "us-east-1":
                 s3.create_bucket(Bucket=bucket_name)
@@ -46,7 +46,7 @@ def ensure_bucket_exists(bucket_name: str):
                         "LocationConstraint": REGION
                     },
                 )
-            print(f"✅ S3 bucket created: {bucket_name}")
+            print(f" S3 bucket created: {bucket_name}")
         else:
             raise e
 
@@ -158,11 +158,11 @@ def write_snapshot_to_s3(metrics, alarms):
         ContentType="application/json",
     )
 
-    print(f"📁 Alarm snapshot uploaded to s3://{S3_BUCKET}/{key}")
+    print(f" Alarm snapshot uploaded to s3://{S3_BUCKET}/{key}")
     return key
 
 # =====================================================
-# READ SNAPSHOT BACK FROM S3  ✅ NEW
+# READ SNAPSHOT BACK FROM S3   NEW
 # =====================================================
 def read_snapshot_from_s3(key: str):
     response = s3.get_object(Bucket=S3_BUCKET, Key=key)
@@ -173,7 +173,7 @@ def read_snapshot_from_s3(key: str):
 # MAIN
 # =====================================================
 if __name__ == "__main__":
-    print("🚀 Running sentiment inference + metrics collection")
+    print(" Running sentiment inference + metrics collection")
 
     ensure_bucket_exists(S3_BUCKET)
 
@@ -193,10 +193,10 @@ if __name__ == "__main__":
 
     snapshot_key = write_snapshot_to_s3(metrics, alarms)
 
-    # 🔹 Display JSON from S3
-    print("\n📄 Alarm snapshot read back from S3:\n")
+    # Display JSON from S3
+    print("\n Alarm snapshot read back from S3:\n")
     snapshot = read_snapshot_from_s3(snapshot_key)
     print(json.dumps(snapshot, indent=2))
 
-    print("\n✅ Metrics, alarms, S3 snapshot, and display complete")
+    print("\n Metrics, alarms, S3 snapshot, and display complete")
 

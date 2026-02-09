@@ -12,7 +12,7 @@ ROLE_ARN = "arn:aws:iam::288146132384:role/LabRole"
 sm = boto3.client("sagemaker", region_name=REGION)
 s3 = boto3.client("s3", region_name=REGION)
 
-print("🧹 Cleaning SageMaker resources...")
+print(" Cleaning SageMaker resources...")
 
 # Delete endpoints
 for ep in sm.list_endpoints()["Endpoints"]:
@@ -32,5 +32,5 @@ for model in sm.list_models()["Models"]:
         sm.delete_model(ModelName=model["ModelName"])
         print("Deleted model:", model["ModelName"])
 
-print("✅ Cleanup complete")
+print(" Cleanup complete")
 

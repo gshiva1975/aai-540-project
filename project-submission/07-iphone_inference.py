@@ -97,10 +97,10 @@ def predict_sentiment(text: str):
 # MAIN
 # =====================================================
 if __name__ == "__main__":
-    print("📱 Loading iPhone reviews...")
+    print(" Loading iPhone reviews...")
     reviews = load_reviews(CSV_PATH)
 
-    print(f"\n🔍 Running sentiment inference on {len(reviews)} reviews...\n")
+    print(f"\n Running sentiment inference on {len(reviews)} reviews...\n")
 
     for i, review in enumerate(reviews[:20], start=1):
         result = predict_sentiment(review)

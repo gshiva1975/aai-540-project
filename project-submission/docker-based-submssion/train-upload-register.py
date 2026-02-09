@@ -24,7 +24,7 @@ MODEL_TAR_PATH = "./model.tar.gz"
 s3 = boto3.client("s3", region_name=REGION)
 sm = boto3.client("sagemaker", region_name=REGION)
 
-# ✅ AWS-managed PyTorch inference image (DO NOT CHANGE)
+#  AWS-managed PyTorch inference image (DO NOT CHANGE)
 INFERENCE_IMAGE_URI = (
     "763104351884.dkr.ecr.us-east-1.amazonaws.com/"
     "pytorch-inference:2.0.0-cpu-py310"
@@ -36,10 +36,10 @@ INFERENCE_IMAGE_URI = (
 def ensure_bucket_exists(bucket):
     try:
         s3.head_bucket(Bucket=bucket)
-        print(f"✅ S3 bucket exists: {bucket}")
+        print(f" S3 bucket exists: {bucket}")
     except ClientError as e:
         if e.response["Error"]["Code"] == "404":
-            print(f"🪣 Creating S3 bucket: {bucket}")
+            print(f" Creating S3 bucket: {bucket}")
             if REGION == "us-east-1":
                 s3.create_bucket(Bucket=bucket)
             else:
@@ -65,7 +65,7 @@ model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
 model.save_pretrained(LOCAL_MODEL_DIR)
 tokenizer.save_pretrained(LOCAL_MODEL_DIR)
 
-print("✅ Pretrained model saved locally")
+print(" Pretrained model saved locally")
 
 # =================================================
 # PACKAGE MODEL (SageMaker-compatible)
@@ -73,7 +73,7 @@ print("✅ Pretrained model saved locally")
 with tarfile.open(MODEL_TAR_PATH, "w:gz") as tar:
     tar.add(LOCAL_MODEL_DIR, arcname=".")
 
-print("✅ model.tar.gz created")
+print(" model.tar.gz created")
 
 # =================================================
 # UPLOAD TO S3
@@ -82,7 +82,7 @@ s3_key = f"{S3_PREFIX}/model.tar.gz"
 s3.upload_file(MODEL_TAR_PATH, S3_BUCKET, s3_key)
 
 MODEL_DATA_URL = f"s3://{S3_BUCKET}/{s3_key}"
-print(f"📦 Model uploaded to {MODEL_DATA_URL}")
+print(f" Model uploaded to {MODEL_DATA_URL}")
 
 # =================================================
 # ENSURE MODEL PACKAGE GROUP EXISTS
@@ -92,13 +92,13 @@ def ensure_model_package_group():
         sm.describe_model_package_group(
             ModelPackageGroupName=MODEL_PACKAGE_GROUP
         )
-        print("✅ Model Package Group exists")
+        print(" Model Package Group exists")
     except sm.exceptions.ResourceNotFound:
         sm.create_model_package_group(
             ModelPackageGroupName=MODEL_PACKAGE_GROUP,
             ModelPackageGroupDescription="Sentiment analysis models"
         )
-        print("📁 Model Package Group created")
+        print(" Model Package Group created")
 
 ensure_model_package_group()
 
@@ -125,6 +125,6 @@ response = sm.create_model_package(
     }
 )
 
-print("🏁 BASELINE MODEL REGISTERED")
-print(f"📌 Model Package ARN: {response['ModelPackageArn']}")
+print(" BASELINE MODEL REGISTERED")
+print(f" Model Package ARN: {response['ModelPackageArn']}")
 
