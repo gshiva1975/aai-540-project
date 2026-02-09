@@ -1,202 +1,232 @@
 import json
 import time
+import math
+import random
 import boto3
+import numpy as np
+import pandas as pd
 from datetime import datetime
-from botocore.exceptions import ClientError
 
-# =====================================================
+# =========================
 # CONFIG
-# =====================================================
-REGION = "us-east-1"
-NAMESPACE = "SentimentInference"
+# =========================
+CSV_PATH = "iphone.csv"
 ENDPOINT_NAME = "sentiment-baseline-endpoint"
 
-S3_BUCKET = "my-sentiment-monitoring-bucket"
-S3_PREFIX = "alarms"
+BUCKET_NAME = "my-sentiment-monitoring-bucket"
+S3_PREFIX = "alarms/"
 
-NEGATIVE_THRESHOLD = 70.0
-LOW_CONF_THRESHOLD = 30.0
-LOW_CONF_SCORE = 0.60
+SAMPLE_SIZE = 600
+POSITIVE_RATIO = 0.4   # 40% positive-leaning, 60% random
+MAX_TEXT_LENGTH = 512
 
-# =====================================================
-# CLIENTS
-# =====================================================
-cloudwatch = boto3.client("cloudwatch", region_name=REGION)
-runtime = boto3.client("sagemaker-runtime", region_name=REGION)
-s3 = boto3.client("s3", region_name=REGION)
+CONFIDENCE_THRESHOLD = 0.60
+NEGATIVE_RATE_THRESHOLD = 0.60
+LOW_CONFIDENCE_THRESHOLD = 0.40
 
-# =====================================================
-# ENSURE S3 BUCKET EXISTS
-# =====================================================
-def ensure_bucket_exists(bucket_name: str):
-    try:
-        s3.head_bucket(Bucket=bucket_name)
-        print(f" S3 bucket exists: {bucket_name}")
+random.seed(42)  # reproducible sampling (optional)
 
-    except ClientError as e:
-        if e.response["Error"]["Code"] in ["404", "NoSuchBucket"]:
-            print(f" Creating S3 bucket: {bucket_name}")
+runtime = boto3.client("sagemaker-runtime")
+s3 = boto3.client("s3")
 
-            if REGION == "us-east-1":
-                s3.create_bucket(Bucket=bucket_name)
-            else:
-                s3.create_bucket(
-                    Bucket=bucket_name,
-                    CreateBucketConfiguration={
-                        "LocationConstraint": REGION
-                    },
-                )
-            print(f" S3 bucket created: {bucket_name}")
-        else:
-            raise e
+# =========================
+# LOAD REVIEWS
+# =========================
+def load_reviews(csv_path):
+    df = pd.read_csv(csv_path)
 
-# =====================================================
-# LABEL NORMALIZATION
-# =====================================================
-def normalize_label(label: str) -> str:
-    if label.upper() == "LABEL_1":
-        return "POSITIVE"
-    if label.upper() == "LABEL_0":
-        return "NEGATIVE"
-    return label
+    if not {"reviewTitle", "reviewDescription"}.issubset(df.columns):
+        raise ValueError("CSV must contain 'reviewTitle' and 'reviewDescription'")
 
-# =====================================================
-# PUBLISH METRICS
-# =====================================================
-def publish_metrics(positive, negative, low_conf):
-    cloudwatch.put_metric_data(
-        Namespace=NAMESPACE,
-        MetricData=[
-            {"MetricName": "PositiveRate", "Value": positive, "Unit": "Percent"},
-            {"MetricName": "NegativeRate", "Value": negative, "Unit": "Percent"},
-            {"MetricName": "LowConfidenceRate", "Value": low_conf, "Unit": "Percent"},
-        ],
+    df["text"] = (
+        df["reviewTitle"].fillna("") + ". " +
+        df["reviewDescription"].fillna("")
     )
 
-# =====================================================
-# RUN INFERENCE + METRIC COLLECTION
-# =====================================================
-def run_inference(texts):
-    pos = neg = low_conf = 0
+    reviews = df["text"].dropna().tolist()
+    reviews = [r.strip() for r in reviews if r.strip()]
 
-    for text in texts:
-        response = runtime.invoke_endpoint(
-            EndpointName=ENDPOINT_NAME,
-            ContentType="application/json",
-            Body=json.dumps({"inputs": text}),
-        )
+    return reviews
 
-        result = json.loads(response["Body"].read().decode())[0]
-        label = normalize_label(result["label"])
-        score = result["score"]
+# =========================
+# MIXED SAMPLING
+# =========================
+def sample_mixed_reviews(reviews, total=20, positive_ratio=0.4):
+    positive_keywords = [
+        "good", "great", "excellent", "amazing",
+        "love", "best", "perfect", "awesome"
+    ]
 
-        if score < LOW_CONF_SCORE:
-            low_conf += 1
+    positives = [
+        r for r in reviews
+        if any(k in r.lower() for k in positive_keywords)
+    ]
 
-        if label == "NEGATIVE":
-            neg += 1
-        else:
-            pos += 1
+    num_positive = min(int(total * positive_ratio), len(positives))
+    num_random = total - num_positive
 
-    total = len(texts)
+    sampled = []
 
-    metrics = {
-        "PositiveRate": (pos / total) * 100,
-        "NegativeRate": (neg / total) * 100,
-        "LowConfidenceRate": (low_conf / total) * 100,
-    }
+    if num_positive > 0:
+        sampled.extend(random.sample(positives, num_positive))
 
-    publish_metrics(
-        metrics["PositiveRate"],
-        metrics["NegativeRate"],
-        metrics["LowConfidenceRate"],
+    remaining = list(set(reviews) - set(sampled))
+    sampled.extend(random.sample(remaining, min(num_random, len(remaining))))
+
+    random.shuffle(sampled)
+    return sampled
+
+# =========================
+# INFERENCE (SAFE)
+# =========================
+def predict_sentiment(text):
+    payload = json.dumps({
+        "inputs": text,
+        "parameters": {
+            "truncation": True,
+            "max_length": MAX_TEXT_LENGTH
+        }
+    })
+
+    response = runtime.invoke_endpoint(
+        EndpointName=ENDPOINT_NAME,
+        ContentType="application/json",
+        Body=payload,
     )
 
-    return metrics
+    result = json.loads(response["Body"].read())[0]
 
-# =====================================================
-# CREATE CLOUDWATCH ALARMS
-# =====================================================
-def create_alarm(metric_name, threshold):
-    alarm_name = f"{metric_name}-Alarm"
-
-    cloudwatch.put_metric_alarm(
-        AlarmName=alarm_name,
-        Namespace=NAMESPACE,
-        MetricName=metric_name,
-        Statistic="Average",
-        Period=300,
-        EvaluationPeriods=1,
-        Threshold=threshold,
-        ComparisonOperator="GreaterThanThreshold",
-        TreatMissingData="notBreaching",
-    )
+    label = "positive" if result["label"] == "LABEL_1" else "negative"
 
     return {
-        "AlarmName": alarm_name,
-        "Metric": metric_name,
-        "Threshold": threshold,
+        "text": text[:200] + "..." if len(text) > 200 else text,
+        "label": label,
+        "score": result["score"]
     }
 
-# =====================================================
-# WRITE SNAPSHOT TO S3
-# =====================================================
-def write_snapshot_to_s3(metrics, alarms):
-    payload = {
-        "timestamp": datetime.utcnow().isoformat(),
-        "endpoint": ENDPOINT_NAME,
-        "metrics": metrics,
-        "alarms": alarms,
+# =========================
+# METRICS
+# =========================
+def entropy(p):
+    return -sum(x * math.log(x + 1e-9) for x in p)
+
+def compute_metrics(results):
+    sentiments = []
+    confidences = []
+    lengths = []
+    entropies = []
+
+    for r in results:
+        sentiments.append(r["label"])
+        confidences.append(r["score"])
+        lengths.append(len(r["text"].split()))
+        entropies.append(entropy([r["score"], 1 - r["score"]]))
+
+    total = len(results)
+
+    return {
+        "TotalSamples": total,
+        "PositiveRate": sentiments.count("positive") / total,
+        "NegativeRate": sentiments.count("negative") / total,
+        "LowConfidenceRate": sum(c < CONFIDENCE_THRESHOLD for c in confidences) / total,
+        "AvgConfidence": float(np.mean(confidences)),
+        "ConfidenceP90": float(np.percentile(confidences, 90)),
+        "AvgTextLength": float(np.mean(lengths)),
+        "P95TextLength": float(np.percentile(lengths, 95)),
+        "AvgEntropy": float(np.mean(entropies)),
+        "Timestamp": datetime.utcnow().isoformat()
     }
 
-    key = f"{S3_PREFIX}/alarm_snapshot_{int(time.time())}.json"
+# =========================
+# ALARMS
+# =========================
+def evaluate_alarms(metrics):
+    alarms = []
+
+    if metrics["NegativeRate"] > NEGATIVE_RATE_THRESHOLD:
+        alarms.append("🚨 High Negative Rate")
+
+    if metrics["LowConfidenceRate"] > LOW_CONFIDENCE_THRESHOLD:
+        alarms.append("⚠️ Low Confidence Spike")
+
+    if metrics["P95TextLength"] > MAX_TEXT_LENGTH:
+        alarms.append("🚨 Input Text Length Drift")
+
+    if metrics["AvgEntropy"] > 0.65:
+        alarms.append("⚠️ High Prediction Uncertainty")
+
+    return alarms
+
+# =========================
+# S3 HELPERS
+# =========================
+def ensure_bucket(bucket):
+    try:
+        s3.head_bucket(Bucket=bucket)
+        print(f"✅ S3 bucket exists: {bucket}")
+    except:
+        print(f"🪣 Creating S3 bucket: {bucket}")
+        s3.create_bucket(Bucket=bucket)
+
+def upload_snapshot(data):
+    ts = int(time.time())
+    key = f"{S3_PREFIX}alarm_snapshot_{ts}.json"
 
     s3.put_object(
-        Bucket=S3_BUCKET,
+        Bucket=BUCKET_NAME,
         Key=key,
-        Body=json.dumps(payload, indent=2),
-        ContentType="application/json",
+        Body=json.dumps(data, indent=2),
+        ContentType="application/json"
     )
 
-    print(f" Alarm snapshot uploaded to s3://{S3_BUCKET}/{key}")
     return key
 
-# =====================================================
-# READ SNAPSHOT BACK FROM S3   NEW
-# =====================================================
-def read_snapshot_from_s3(key: str):
-    response = s3.get_object(Bucket=S3_BUCKET, Key=key)
-    content = response["Body"].read().decode("utf-8")
-    return json.loads(content)
+def read_snapshot_from_s3(bucket, key):
+    obj = s3.get_object(Bucket=bucket, Key=key)
+    return json.loads(obj["Body"].read())
 
-# =====================================================
+# =========================
 # MAIN
-# =====================================================
+# =========================
 if __name__ == "__main__":
-    print(" Running sentiment inference + metrics collection")
+    ensure_bucket(BUCKET_NAME)
 
-    ensure_bucket_exists(S3_BUCKET)
+    reviews = load_reviews(CSV_PATH)
 
-    sample_texts = [
-        "This phone is amazing!",
-        "Worst phone I have ever used",
-        "Battery life is okay, nothing special",
-        "Camera quality is excellent",
-    ]
+    sampled_reviews = sample_mixed_reviews(
+        reviews,
+        total=SAMPLE_SIZE,
+        positive_ratio=POSITIVE_RATIO
+    )
 
-    metrics = run_inference(sample_texts)
+    print(f"\n🔍 Running sentiment inference on {len(sampled_reviews)} MIXED reviews...\n")
 
-    alarms = [
-        create_alarm("NegativeRate", NEGATIVE_THRESHOLD),
-        create_alarm("LowConfidenceRate", LOW_CONF_THRESHOLD),
-    ]
+    results = []
+    for i, review in enumerate(sampled_reviews, start=1):
+        res = predict_sentiment(review)
+        results.append(res)
+        print(f"{i}. {res['label']} ({res['score']:.2f})")
 
-    snapshot_key = write_snapshot_to_s3(metrics, alarms)
+    metrics = compute_metrics(results)
+    alarms = evaluate_alarms(metrics)
 
-    # Display JSON from S3
-    print("\n Alarm snapshot read back from S3:\n")
-    snapshot = read_snapshot_from_s3(snapshot_key)
-    print(json.dumps(snapshot, indent=2))
+    snapshot = {
+        "metrics": metrics,
+        "alarms": alarms
+    }
 
-    print("\n Metrics, alarms, S3 snapshot, and display complete")
+    s3_key = upload_snapshot(snapshot)
+
+    print("\n📊 METRICS")
+    print(json.dumps(metrics, indent=2))
+
+    print("\n🚨 ALARMS")
+    print(alarms if alarms else "No alarms triggered")
+
+    print(f"\n📦 Snapshot uploaded to s3://{BUCKET_NAME}/{s3_key}")
+
+    snapshot_from_s3 = read_snapshot_from_s3(BUCKET_NAME, s3_key)
+
+    print("\n📥 SNAPSHOT READ BACK FROM S3")
+    print(json.dumps(snapshot_from_s3, indent=2))
 
