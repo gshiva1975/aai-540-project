@@ -1,232 +1,180 @@
 import json
-import time
-import math
 import random
+import time
 import boto3
-import numpy as np
 import pandas as pd
-from datetime import datetime
+from collections import Counter
 
-# =========================
+# =============================
 # CONFIG
-# =========================
+# =============================
 CSV_PATH = "iphone.csv"
 ENDPOINT_NAME = "sentiment-baseline-endpoint"
+REGION = "us-east-1"
 
 BUCKET_NAME = "my-sentiment-monitoring-bucket"
-S3_PREFIX = "alarms/"
+S3_PREFIX = "alarms"
 
-SAMPLE_SIZE = 600
-POSITIVE_RATIO = 0.4   # 40% positive-leaning, 60% random
-MAX_TEXT_LENGTH = 512
+SAMPLE_SIZE = 200           # random samples
+MAX_CHARS = 1000           # prevents 512-token crash
+NEG_THRESHOLD = 0.60       # alarm threshold
 
-CONFIDENCE_THRESHOLD = 0.60
-NEGATIVE_RATE_THRESHOLD = 0.60
-LOW_CONFIDENCE_THRESHOLD = 0.40
+# =============================
+# AWS CLIENTS
+# =============================
+runtime = boto3.client("sagemaker-runtime", region_name=REGION)
+s3 = boto3.client("s3", region_name=REGION)
 
-random.seed(42)  # reproducible sampling (optional)
-
-runtime = boto3.client("sagemaker-runtime")
-s3 = boto3.client("s3")
-
-# =========================
-# LOAD REVIEWS
-# =========================
-def load_reviews(csv_path):
-    df = pd.read_csv(csv_path)
-
-    if not {"reviewTitle", "reviewDescription"}.issubset(df.columns):
-        raise ValueError("CSV must contain 'reviewTitle' and 'reviewDescription'")
-
-    df["text"] = (
-        df["reviewTitle"].fillna("") + ". " +
-        df["reviewDescription"].fillna("")
-    )
-
-    reviews = df["text"].dropna().tolist()
-    reviews = [r.strip() for r in reviews if r.strip()]
-
-    return reviews
-
-# =========================
-# MIXED SAMPLING
-# =========================
-def sample_mixed_reviews(reviews, total=20, positive_ratio=0.4):
-    positive_keywords = [
-        "good", "great", "excellent", "amazing",
-        "love", "best", "perfect", "awesome"
-    ]
-
-    positives = [
-        r for r in reviews
-        if any(k in r.lower() for k in positive_keywords)
-    ]
-
-    num_positive = min(int(total * positive_ratio), len(positives))
-    num_random = total - num_positive
-
-    sampled = []
-
-    if num_positive > 0:
-        sampled.extend(random.sample(positives, num_positive))
-
-    remaining = list(set(reviews) - set(sampled))
-    sampled.extend(random.sample(remaining, min(num_random, len(remaining))))
-
-    random.shuffle(sampled)
-    return sampled
-
-# =========================
-# INFERENCE (SAFE)
-# =========================
-def predict_sentiment(text):
-    payload = json.dumps({
-        "inputs": text,
-        "parameters": {
-            "truncation": True,
-            "max_length": MAX_TEXT_LENGTH
-        }
-    })
-
-    response = runtime.invoke_endpoint(
-        EndpointName=ENDPOINT_NAME,
-        ContentType="application/json",
-        Body=payload,
-    )
-
-    result = json.loads(response["Body"].read())[0]
-
-    label = "positive" if result["label"] == "LABEL_1" else "negative"
-
-    return {
-        "text": text[:200] + "..." if len(text) > 200 else text,
-        "label": label,
-        "score": result["score"]
-    }
-
-# =========================
-# METRICS
-# =========================
-def entropy(p):
-    return -sum(x * math.log(x + 1e-9) for x in p)
-
-def compute_metrics(results):
-    sentiments = []
-    confidences = []
-    lengths = []
-    entropies = []
-
-    for r in results:
-        sentiments.append(r["label"])
-        confidences.append(r["score"])
-        lengths.append(len(r["text"].split()))
-        entropies.append(entropy([r["score"], 1 - r["score"]]))
-
-    total = len(results)
-
-    return {
-        "TotalSamples": total,
-        "PositiveRate": sentiments.count("positive") / total,
-        "NegativeRate": sentiments.count("negative") / total,
-        "LowConfidenceRate": sum(c < CONFIDENCE_THRESHOLD for c in confidences) / total,
-        "AvgConfidence": float(np.mean(confidences)),
-        "ConfidenceP90": float(np.percentile(confidences, 90)),
-        "AvgTextLength": float(np.mean(lengths)),
-        "P95TextLength": float(np.percentile(lengths, 95)),
-        "AvgEntropy": float(np.mean(entropies)),
-        "Timestamp": datetime.utcnow().isoformat()
-    }
-
-# =========================
-# ALARMS
-# =========================
-def evaluate_alarms(metrics):
-    alarms = []
-
-    if metrics["NegativeRate"] > NEGATIVE_RATE_THRESHOLD:
-        alarms.append("🚨 High Negative Rate")
-
-    if metrics["LowConfidenceRate"] > LOW_CONFIDENCE_THRESHOLD:
-        alarms.append("⚠️ Low Confidence Spike")
-
-    if metrics["P95TextLength"] > MAX_TEXT_LENGTH:
-        alarms.append("🚨 Input Text Length Drift")
-
-    if metrics["AvgEntropy"] > 0.65:
-        alarms.append("⚠️ High Prediction Uncertainty")
-
-    return alarms
-
-# =========================
-# S3 HELPERS
-# =========================
+# =============================
+# HELPERS
+# =============================
 def ensure_bucket(bucket):
     try:
         s3.head_bucket(Bucket=bucket)
         print(f"✅ S3 bucket exists: {bucket}")
     except:
         print(f"🪣 Creating S3 bucket: {bucket}")
-        s3.create_bucket(Bucket=bucket)
+        s3.create_bucket(
+            Bucket=bucket,
+            CreateBucketConfiguration={"LocationConstraint": REGION},
+        )
 
-def upload_snapshot(data):
-    ts = int(time.time())
-    key = f"{S3_PREFIX}alarm_snapshot_{ts}.json"
+def prepare_text(title, description):
+    text = f"{title}. {description}"
+    return text[:MAX_CHARS]
 
-    s3.put_object(
-        Bucket=BUCKET_NAME,
-        Key=key,
-        Body=json.dumps(data, indent=2),
-        ContentType="application/json"
+def map_label(label):
+    return "positive" if label == "LABEL_1" else "negative"
+
+def invoke_endpoint(text):
+    payload = {"inputs": text}
+
+    response = runtime.invoke_endpoint(
+        EndpointName=ENDPOINT_NAME,
+        ContentType="application/json",
+        Body=json.dumps(payload),
     )
 
-    return key
+    result = json.loads(response["Body"].read())
+    label = result[0]["label"]
+    score = float(result[0]["score"])
 
-def read_snapshot_from_s3(bucket, key):
-    obj = s3.get_object(Bucket=bucket, Key=key)
-    return json.loads(obj["Body"].read())
+    return {
+        "label": label,
+        "sentiment": map_label(label),
+        "confidence": round(score, 4),
+    }
 
-# =========================
+# =============================
+# LOAD & SAMPLE DATA
+# =============================
+def load_reviews(csv_path):
+    df = pd.read_csv(csv_path)
+
+    required_cols = {"reviewTitle", "reviewDescription"}
+    if not required_cols.issubset(df.columns):
+        raise ValueError(
+            f"CSV must contain columns: {required_cols}"
+        )
+
+    records = df[["reviewTitle", "reviewDescription"]].dropna().to_dict("records")
+    return random.sample(records, min(SAMPLE_SIZE, len(records)))
+
+# =============================
 # MAIN
-# =========================
-if __name__ == "__main__":
+# =============================
+def main():
     ensure_bucket(BUCKET_NAME)
 
+    print("📱 Loading iPhone reviews...")
     reviews = load_reviews(CSV_PATH)
 
-    sampled_reviews = sample_mixed_reviews(
-        reviews,
-        total=SAMPLE_SIZE,
-        positive_ratio=POSITIVE_RATIO
-    )
-
-    print(f"\n🔍 Running sentiment inference on {len(sampled_reviews)} MIXED reviews...\n")
+    print(f"\n🚀 Running sentiment inference on {len(reviews)} reviews...\n")
 
     results = []
-    for i, review in enumerate(sampled_reviews, start=1):
-        res = predict_sentiment(review)
-        results.append(res)
-        print(f"{i}. {res['label']} ({res['score']:.2f})")
+    sentiments = []
 
-    metrics = compute_metrics(results)
-    alarms = evaluate_alarms(metrics)
+    for i, r in enumerate(reviews, start=1):
+        text = prepare_text(r["reviewTitle"], r["reviewDescription"])
+        prediction = invoke_endpoint(text)
+
+        sentiments.append(prediction["sentiment"])
+
+        record = {
+            "reviewTitle": r["reviewTitle"],
+            "reviewDescription": r["reviewDescription"],
+            "prediction": prediction,
+        }
+        results.append(record)
+
+        print(f"{i}. [{prediction['sentiment'].upper()} | {prediction['confidence']}]")
+        print(f"   {r['reviewTitle']}")
+    tests = [ "Amazing", "Excellent product", "Best phone of the decade", "Waste of money" ]
+    for t in tests:
+        prediction = invoke_endpoint(t)
+        sentiments.append(prediction["sentiment"])
+
+        record = {
+            "reviewTitle": t,
+            "prediction": prediction,
+        }
+        results.append(record)
+
+        print(f"{i}. [{prediction['sentiment'].upper()} | {prediction['confidence']}]")
+
+    # =============================
+    # METRICS
+    # =============================
+    counts = Counter(sentiments)
+    total = sum(counts.values())
+
+    metrics = {
+        "total_reviews": total,
+        "positive_count": counts.get("positive", 0),
+        "negative_count": counts.get("negative", 0),
+        "negative_ratio": round(counts.get("negative", 0) / total, 3),
+        "timestamp": int(time.time()),
+    }
+
+    alarm_triggered = metrics["negative_ratio"] >= NEG_THRESHOLD
 
     snapshot = {
         "metrics": metrics,
-        "alarms": alarms
+        "alarm_triggered": alarm_triggered,
+        "samples": results,
     }
 
-    s3_key = upload_snapshot(snapshot)
-
-    print("\n📊 METRICS")
-    print(json.dumps(metrics, indent=2))
-
-    print("\n🚨 ALARMS")
-    print(alarms if alarms else "No alarms triggered")
+    # =============================
+    # UPLOAD SNAPSHOT
+    # =============================
+    s3_key = f"{S3_PREFIX}/alarm_snapshot_{metrics['timestamp']}.json"
+    s3.put_object(
+        Bucket=BUCKET_NAME,
+        Key=s3_key,
+        Body=json.dumps(snapshot, indent=2),
+        ContentType="application/json",
+    )
 
     print(f"\n📦 Snapshot uploaded to s3://{BUCKET_NAME}/{s3_key}")
 
-    snapshot_from_s3 = read_snapshot_from_s3(BUCKET_NAME, s3_key)
+    if alarm_triggered:
+        print("🚨 ALARM TRIGGERED: High negative sentiment detected")
+    else:
+        print("✅ Sentiment within acceptable range")
 
-    print("\n📥 SNAPSHOT READ BACK FROM S3")
-    print(json.dumps(snapshot_from_s3, indent=2))
+    # =============================
+    # READ BACK FROM S3
+    # =============================
+    print("\n📥 Reading snapshot back from S3:\n")
+    obj = s3.get_object(Bucket=BUCKET_NAME, Key=s3_key)
+    content = json.loads(obj["Body"].read())
+
+    print(json.dumps(content["metrics"], indent=2))
+
+
+# =============================
+# ENTRY
+# =============================
+if __name__ == "__main__":
+    main()
 

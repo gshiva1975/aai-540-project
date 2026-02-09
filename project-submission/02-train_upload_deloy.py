@@ -8,6 +8,7 @@ GROUP = "SentimentAnalysisModels"
 
 HF_MODEL_ID = "distilbert-base-uncased"
 HF_MODEL_ID= "distilbert-base-uncased-finetuned-sst-2-english"
+HF_MODEL_ID = "cardiffnlp/twitter-roberta-base-sentiment"
 
 IMAGE_URI = (
  "763104351884.dkr.ecr.us-east-1.amazonaws.com/"
