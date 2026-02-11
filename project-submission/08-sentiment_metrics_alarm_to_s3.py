@@ -31,9 +31,9 @@ s3 = boto3.client("s3", region_name=REGION)
 def ensure_bucket(bucket):
     try:
         s3.head_bucket(Bucket=bucket)
-        print(f"✅ S3 bucket exists: {bucket}")
+        print(f" S3 bucket exists: {bucket}")
     except:
-        print(f"🪣 Creating S3 bucket: {bucket}")
+        print(f" Creating S3 bucket: {bucket}")
         if REGION == "us-east-1":
             s3.create_bucket(Bucket=bucket)
         else:
@@ -89,10 +89,10 @@ def load_reviews(csv_path):
 def main():
     ensure_bucket(BUCKET_NAME)
 
-    print("📱 Loading iPhone reviews...")
+    print(" Loading iPhone reviews...")
     reviews = load_reviews(CSV_PATH)
 
-    print(f"\n🚀 Running sentiment inference on {len(reviews)} reviews...\n")
+    print(f"\n Running sentiment inference on {len(reviews)} reviews...\n")
 
     results = []
     sentiments = []
@@ -124,7 +124,7 @@ def main():
         "Waste of money",
     ]
 
-    print("\n🧪 Sanity test predictions:\n")
+    print("\n Sanity test predictions:\n")
     for t in sanity_tests:
         prediction = invoke_endpoint(t)
         sentiments.append(prediction["sentiment"])
@@ -170,17 +170,17 @@ def main():
         ContentType="application/json",
     )
 
-    print(f"\n📦 Snapshot uploaded to s3://{BUCKET_NAME}/{s3_key}")
+    print(f"\n Snapshot uploaded to s3://{BUCKET_NAME}/{s3_key}")
 
     if alarm_triggered:
-        print("🚨 ALARM TRIGGERED: High negative sentiment detected")
+        print(" ALARM TRIGGERED: High negative sentiment detected")
     else:
-        print("✅ Sentiment within acceptable range")
+        print(" Sentiment within acceptable range")
 
     # =============================
     # READ BACK FROM S3
     # =============================
-    print("\n📥 Reading snapshot back from S3:\n")
+    print("\n Reading snapshot back from S3:\n")
     obj = s3.get_object(Bucket=BUCKET_NAME, Key=s3_key)
     content = json.loads(obj["Body"].read())
 
