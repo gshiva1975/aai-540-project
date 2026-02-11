@@ -97,11 +97,11 @@ pipeline = Pipeline(
 # EXECUTE
 # =====================================================
 if __name__ == "__main__":
-    print("🚀 Creating / Updating pipeline...")
+    print(" Creating / Updating pipeline...")
     pipeline.upsert(role_arn=ROLE_ARN)
 
-    print("▶️ Starting pipeline execution...")
+    print(" Starting pipeline execution...")
     execution = pipeline.start()
 
-    print(f"✅ Pipeline execution started:\n{execution.arn}")
+    print(f" Pipeline execution started:\n{execution.arn}")
 
